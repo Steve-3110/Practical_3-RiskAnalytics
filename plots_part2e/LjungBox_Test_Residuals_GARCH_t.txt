@@ -1,0 +1,8 @@
+Ljung-Box Test for Residuals of GARCH_t :
+
+
+	Box-Ljung test
+
+data:  std_resid
+X-squared = 11.203, df = 20, p-value = 0.9408
+

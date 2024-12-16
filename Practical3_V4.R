@@ -74,8 +74,6 @@ AIC(fit_gamma)
 # gamma distribution fits the best our data on AIC and BIC it's very closed form the normal distribution
 
 
-
-
 # STL plot
 autoplot(stl(daily_max_delay_ts, t.window = 18, s.window = "periodic"))
 stl_result <- stl(daily_max_delay_ts, t.window = 18, s.window = "periodic")
@@ -176,8 +174,56 @@ ggplot() +
 
 ################ GEV Model #####################
 
+# Convert our daily max observation to a weekly max observation
+# Ensure the date column is in Date format
+daily_max_delay$FL_DATE <- as.Date(daily_max_delay$FL_DATE, format = "%Y-%m-%d")
+
+# Add columns for year and week number
+daily_max_delay <- daily_max_delay %>%
+  mutate(
+    Year = year(FL_DATE),       # Extract year
+    Week = week(FL_DATE)        # Extract week of the year
+  )
+
+# Group by year and week, then calculate the maximum value for each group
+weekly_max_delay <- daily_max_delay %>%
+  group_by(Year, Week) %>%
+  summarize(max_delay = max(max_delay, na.rm = TRUE), .groups = "drop")
+
+
+# Convert weekly maximum delay data into a time series
+weekly_max_delay_ts <- ts(weekly_max_delay$max_delay, start = c(min(weekly_max_delay$Year), min(weekly_max_delay$Week)), frequency = 52.18)
+
+# Apply STL decomposition
+stl_result_weekly <- stl(weekly_max_delay_ts, t.window = 13, s.window = "periodic")
+
+# Plot the STL decomposition
+autoplot(stl_result_weekly) +
+  labs(title = "STL Decomposition of Weekly Maximum Delays",
+       x = "Time",
+       y = "Maximum Delay (minutes)") +
+  theme_minimal()
+
+# Extract residuals (remainder component)
+residuals_weekly <- stl_result_weekly$time.series[, "remainder"]
+
+# Plot residuals
+autoplot(residuals_weekly) +
+  labs(title = "Residuals from STL Decomposition of Weekly Maximum Delays",
+       x = "Time",
+       y = "Residuals") +
+  theme_minimal()
+
+# Convert weekly residuals to a data frame
+residuals_weekly_df <- data.frame(
+  Week = seq_along(residuals_weekly),  # Create a sequential index for weeks
+  Residual = as.numeric(residuals_weekly)  # Convert residuals to numeric
+)
+
+
+
 # Fit the GEV model with constant parameters on our residual series
-gev_const <- fevd(as.numeric(residuals_df$residual), type = "GEV")
+gev_const <- fevd(residuals_weekly_df$Residual, type = "GEV")
 
 
 # Show the result of the modelling
@@ -194,8 +240,6 @@ BIC_const <- summary_const$bic
 cat("Constant GEV Model - AIC:", AIC_const, "BIC:", BIC_const, "\n")
 
 
-### Return level
-
 # Extract the GEV parameters
 location <- gev_const$results$par[1]  # Location parameter
 scale <- gev_const$results$par[2]     # Scale parameter
@@ -203,10 +247,10 @@ shape <- gev_const$results$par[3]     # Shape parameter
 
 # Define the return period
 T_values <- c(1, 2, 5)  # In years
-T_days <- T_values * 365.25 # Reconvert into days for better interpretability
+T_weeks <- T_values * 52.18  # Convert into weeks (since we are working with weekly data)
 
 # Calculate the return level using the GEV formula
-return_levels <- sapply(T_days, function(T) {
+return_levels <- sapply(T_weeks, function(T) {
   if (shape != 0) {
     location + (scale / shape) * ((-log(1 - 1 / T))^(-shape) - 1)
   } else {
@@ -215,38 +259,48 @@ return_levels <- sapply(T_days, function(T) {
 })
 names(return_levels) <- paste0(T_values, "-year")
 
-# reapply the trend and sesonal compenent to our series
-mean_trend <- mean(stl_result$time.series[, "trend"], na.rm = TRUE)
-mean_seasonal <- mean(stl_result$time.series[, "seasonal"], na.rm = TRUE)
+# Create a sequence of weeks matching the weekly dataset
+weekly_date_range <- seq(from = min(weekly_max_delay$Year) + (min(weekly_max_delay$Week) / 52.18),
+                         to = max(weekly_max_delay$Year) + (max(weekly_max_delay$Week) / 52.18),
+                         length.out = nrow(weekly_max_delay))
 
-return_levels_original_scale <- return_levels + mean_trend + mean_seasonal
+# Extract trend and seasonal components for each week
+trend_component_weekly <- stl_result_weekly$time.series[, "trend"]
+seasonal_component_weekly <- stl_result_weekly$time.series[, "seasonal"]
 
-daily_max_delay$FL_DATE <- as.Date(daily_max_delay$FL_DATE, format = "%Y-%m-%d")
+# Ensure the trend and seasonal components align with the weekly date range
+if (length(weekly_date_range) > length(trend_component_weekly)) {
+  trend_component_weekly <- c(trend_component_weekly, 
+                              rep(mean(trend_component_weekly, na.rm = TRUE), 
+                                  length(weekly_date_range) - length(trend_component_weekly)))
+  seasonal_component_weekly <- c(seasonal_component_weekly, 
+                                 rep(mean(seasonal_component_weekly, na.rm = TRUE), 
+                                     length(weekly_date_range) - length(seasonal_component_weekly)))
+}
 
-# Create a sequence of dates matching the dataset
-date_range <- seq(from = min(daily_max_delay$FL_DATE), to = max(daily_max_delay$FL_DATE), by = "day")
+# Calculate weekly return levels by adding trend and seasonality
+return_levels_weekly <- lapply(return_levels, function(level) {
+  level + trend_component_weekly + seasonal_component_weekly
+})
 
-# Create a data frame with return levels for each T
-return_level_df <- data.frame(
-  Date = rep(date_range, times = length(T_values)),
-  Return_Level = unlist(lapply(return_levels_original_scale, rep, length(date_range))),
-  T = rep(paste0(T_values, "-year"), each = length(date_range))
+# Convert the list into a data frame for visualization
+return_level_weekly_df <- data.frame(
+  Week = rep(weekly_date_range, times = length(T_values)),
+  Return_Level = unlist(return_levels_weekly),
+  T = rep(paste0(T_values, "-year"), each = length(weekly_date_range))
 )
 
+# Visualization
 ggplot() +
-  geom_line(data = daily_max_delay, aes(x = FL_DATE, y = max_delay), color = "blue") +  # Observed delays
-  geom_hline(
-    yintercept = return_levels_original_scale, 
-    color = c("red", "green", "purple"), linetype = "dashed"
-  ) +
-  scale_color_manual(values = c("1-year" = "red", "2-year" = "green", "5-year" = "purple")) +
+  geom_line(data = weekly_max_delay, aes(x = Year + (Week / 52.18), y = max_delay), color = "blue") +  # Observed delays
+  geom_line(data = return_level_weekly_df, aes(x = Week, y = Return_Level, color = T), linetype = "dashed") +
+  scale_color_manual(values = c("red", "green", "purple"), name = "Return Period") +
   labs(
-    title = "Return Levels for Maximum Delays",
-    x = "Date",
+    title = "Weekly Return Levels for Maximum Delays",
+    x = "Week",
     y = "Delay (minutes)"
   ) +
   theme_minimal()
-
 
 
 
@@ -279,45 +333,60 @@ return_period
 
 
 
+# Define the threshold
+threshold <- 1500
 
-# Define the thresholds in minutes
-thresholds <- c(500, 1000, 1500, 2000, 2500, 3000)
-
-# Function to calculate the return period
-calculate_return_period <- function(threshold, mu, sigma, xi) {
-  if (xi != 0) {
-    F_x <- exp(-((1 + (xi * (threshold - mu)) / sigma) ^ (-1 / xi)))
-  } else {
-    F_x <- exp(-exp(-(threshold - mu) / sigma))
+# Calculate dynamic return levels for each week
+return_levels_dynamic <- sapply(seq_along(trend_component_weekly), function(i) {
+  # Calculate the dynamic level
+  dynamic_level <- threshold + trend_component_weekly[i] + seasonal_component_weekly[i]
+  
+  # Skip if scale is non-positive or dynamic level leads to invalid calculations
+  if (is.na(dynamic_level) || scale <= 0 || (1 + (shape * (dynamic_level - location) / scale)) <= 0) {
+    return(NA)  # Return NA for invalid cases
   }
-  P_exceed <- 1 - F_x
-  return_period <- 1 / P_exceed
-  return(return_period)
-}
+  
+  # Calculate the return period using the GEV formula
+  if (shape != 0) {
+    1 / (1 - exp(-((1 + (shape * (dynamic_level - location) / scale))^(-1 / shape))))
+  } else {
+    1 / (1 - exp(-exp(-(dynamic_level - location) / scale)))
+  }
+})
 
-#Calculate return periods for each threshold in days
-return_periods_days <- sapply(thresholds, calculate_return_period, mu = mu, sigma = sigma, xi = xi)
-
-# Convert return periods to years (1 year = 365.25 days)
-return_periods_years <- return_periods_days / 365.25
-
-
-# Create a data frame with the results and round the values
-return_period_df <- data.frame(
-  `Threshold (minutes)` = thresholds,
-  `Return Period (days)` = round(return_periods_days, 0), # Rounded to no decimal places
-  `Return Period (years)` = round(return_periods_years, 2) # Rounded to 2 decimal places
+# Combine results into a data frame
+dynamic_return_df <- data.frame(
+  Week = weekly_date_range,
+  Return_Period = return_levels_dynamic
 )
 
+# Extract year
+dynamic_return_df <- dynamic_return_df %>%
+  mutate(Year = floor(Week))
 
-options(scipen = 999)
+# Filter for relevant years and calculate yearly averages
+yearly_avg_return_summary <- dynamic_return_df %>%
+  filter(Year %in% c(2019, 2020, 2021, 2022, 2023)) %>%
+  group_by(Year) %>%
+  summarise(
+    Avg_Return_Period = mean(Return_Period, na.rm = TRUE),  # Calculate the yearly average
+    .groups = "drop"
+  )
 
-# Generate a nice table using kableExtra
-return_period_df %>%
-  kable(format = "html", align = "c", col.names = c("Threshold (minutes)", "Return Period (days)", "Return Period (years)")) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F) %>%
-  add_header_above(c(" " = 1, "Return Period Analysis" = 2)) %>%
-  save_kable("Return_Period_Table.html")
+# Inspect the summary
+print(yearly_avg_return_summary)
+
+# Generate a nicely formatted table
+library(kableExtra)
+yearly_avg_return_summary %>%
+  kable(
+    format = "html",
+    caption = "Yearly Average Return Period Analysis for a Threshold of 1500 Minutes",
+    col.names = c("Year", "Avg Return Period (days)"),
+    digits = 2  # Round to 2 decimal places
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  add_header_above(c(" " = 1, "Yearly Return Period Analysis" = 1))
 
 
 
@@ -368,85 +437,66 @@ n <- fit_gpd$nat          # Number of exceedances (data points)
 aic <- 2 * k - 2 * logLik
 bic <- k * log(n) - 2 * logLik
 
-
-# Reapply the trend and seasonal components
-mean_trend <- mean(stl_result$time.series[, "trend"], na.rm = TRUE)
-mean_seasonal <- mean(stl_result$time.series[, "seasonal"], na.rm = TRUE)
-
-# get the paramter of our model
+# Get the paramter of our model
 scale <- fit_gpd$param["scale"]
 shape <- fit_gpd$param["shape"]
 threshold <- fit_gpd$threshold  # The threshold used in the GPD model
 
+# Define return periods
+return_periods <- c(1, 3, 5, 10)  # Return periods in years
 
-# Add the trend and seasonal components back to interpret return levels on the original scale
-return_levels_original <- function(levels_residual) {
-  return(levels_residual + mean_trend + mean_seasonal)
-}
-
-
-# Define the return periods
-return_periods <- c(1, 3, 5, 10)
-
-# Parameter setup
+# Parameter setup for lambda
 total_years <- length(unique(format(daily_max_delay$FL_DATE, "%Y")))
 num_exceedances <- length(fit_gpd$data)
 lambda <- num_exceedances / total_years
 
-# Calculate return levels for each return period
+# Calculate base return levels (without trend and seasonality) using GPD
 return_levels <- sapply(return_periods, function(T) {
   threshold + (scale / shape) * (((T * lambda) ^ shape) - 1)
 })
 
-return_levels_original_scale <- return_levels_original(return_levels)
+# Create a sequence of weeks matching the weekly dataset
+weekly_date_range <- seq(from = min(weekly_max_delay$Year) + (min(weekly_max_delay$Week) / 52.18),
+                         to = max(weekly_max_delay$Year) + (max(weekly_max_delay$Week) / 52.18),
+                         length.out = nrow(weekly_max_delay))
+
+# Extract trend and seasonal components for each week from STL decomposition
+trend_component_weekly <- stl_result_weekly$time.series[, "trend"]
+seasonal_component_weekly <- stl_result_weekly$time.series[, "seasonal"]
+
+# Ensure trend and seasonal components align with the weekly date range
+if (length(weekly_date_range) > length(trend_component_weekly)) {
+  trend_component_weekly <- c(trend_component_weekly, 
+                              rep(mean(trend_component_weekly, na.rm = TRUE), 
+                                  length(weekly_date_range) - length(trend_component_weekly)))
+  seasonal_component_weekly <- c(seasonal_component_weekly, 
+                                 rep(mean(seasonal_component_weekly, na.rm = TRUE), 
+                                     length(weekly_date_range) - length(seasonal_component_weekly)))
+}
 
 
-# Return levels as a dataframe
-return_levels_df <- data.frame(
-  "Return Period (Years)" = return_periods,
-  "Return Level (Residuals)" = return_levels,
-  "Return Level (Original Scale)" = return_levels_original_scale
-)
-# Print the results
+# Calculate weekly return levels by adding trend and seasonality
+return_levels_weekly <- lapply(return_levels, function(level) {
+  level + trend_component_weekly + seasonal_component_weekly
+})
 
-print(return_levels_df)
 
-# Create a dataframe for plotting
-return_levels_plot <- data.frame(
-  "Return Period" = return_periods,
-  "Return Level" = return_levels_original_scale
-)
-
-# Plot return levels as a curve
-ggplot(return_levels_plot, aes(x = return_periods, y = return_levels_original_scale)) +
-  geom_line(color = "red", size = 1) +
-  geom_point(size = 3, color = "blue") +
-  labs(
-    title = "Return Levels for Maximum Delays",
-    x = "Return Period (Years)",
-    y = "Return Level (Minutes)"
-  ) +
-  theme_minimal()
-
-# Combine observed data and return levels
-observed_data <- data.frame(
-  Date = daily_max_delay$FL_DATE,
-  Delay = daily_max_delay$max_delay
+# Convert the list into a data frame for visualization
+return_level_weekly_df <- data.frame(
+  Week = rep(weekly_date_range, times = length(return_periods)),
+  Return_Level = unlist(return_levels_weekly),
+  Return_Period = rep(paste0(return_periods, "-year"), each = length(weekly_date_range))
 )
 
+# Visualization: Weekly Return Levels
 ggplot() +
-  geom_line(data = observed_data, aes(x = Date, y = Delay), color = "blue") +  # Observed data
-  geom_hline(
-    data = return_levels_plot, aes(yintercept = return_levels_original_scale, color = factor(return_periods)),
-    linetype = "dashed"
-  ) +
-  scale_color_manual(name = "Return Period", values = c("red", "green", "purple", "orange")) +
+  geom_line(data = weekly_max_delay, aes(x = Year+ (Week / 52.18), y = max_delay), color = "blue") +  # Observed delays
+  geom_line(data = return_level_weekly_df, aes(x = Week, y = Return_Level, color = Return_Period), linetype = "dashed") +
+  scale_color_manual(values = c("red", "green", "purple", "orange"), name = "Return Period") +
   labs(
-    title = "Observed Data and Return Levels",
-    x = "Date",
-    y = "Delay (Minutes)"
-  ) +
-  theme_minimal()
+    title = "Weekly Return Levels with Trend and Seasonality (GDP Model)",
+    x = "Week",
+    y = "Delay (minutes)")
 
 
 # Create a nicely formatted table
@@ -486,7 +536,6 @@ declustered_df <- data.frame(
 )
 
 # Plot declustered data
-
 ggplot(declustered_df, aes(x = Index, y = Max_Delay)) +
   geom_point(color = "blue") +
   geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
@@ -522,4 +571,16 @@ extreme_consecutive <- data.frame(
 ggplot(extreme_consecutive, aes(x = Today_Extreme, y = Tomorrow_Extreme)) +
   geom_jitter(width = 0.2, height = 0.2, alpha = 0.6) +
   labs(title = "Consecutive Extreme Events", x = "Today Extreme", y = "Tomorrow Extreme")
+
+
+
+
+
+
+
+
+
+
+
+
 

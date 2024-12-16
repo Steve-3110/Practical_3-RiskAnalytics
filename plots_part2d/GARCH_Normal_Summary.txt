@@ -1,0 +1,112 @@
+Model Summary for GARCH_Normal :
+
+
+Title:
+ GARCH Modelling 
+
+Call:
+ garchFit(formula = ~garch(1, 1), data = bitcoin_neg_log_ts, cond.dist = "norm", 
+    trace = FALSE) 
+
+Mean and Variance Equation:
+ data ~ garch(1, 1)
+<environment: 0x00000179ca2f43d8>
+ [data = bitcoin_neg_log_ts]
+
+Conditional Distribution:
+ norm 
+
+Coefficient(s):
+        mu       omega      alpha1       beta1  
+1.5195e-05  5.5039e-08  2.5355e-01  7.6629e-01  
+
+Std. Errors:
+ based on Hessian 
+
+Error Analysis:
+        Estimate  Std. Error  t value Pr(>|t|)    
+mu     1.520e-05   2.504e-05    0.607    0.544    
+omega  5.504e-08   1.383e-08    3.979 6.93e-05 ***
+alpha1 2.535e-01   2.830e-02    8.958  < 2e-16 ***
+beta1  7.663e-01   2.295e-02   33.394  < 2e-16 ***
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Log Likelihood:
+ 7632.108    normalized:  5.303758 
+
+Description:
+ Mon Dec 16 11:31:37 2024 by user: steve 
+
+
+Standardised Residuals Tests:
+                                   Statistic   p-Value
+ Jarque-Bera Test   R    Chi^2  2244.8197984 0.0000000
+ Shapiro-Wilk Test  R    W         0.9477135 0.0000000
+ Ljung-Box Test     R    Q(10)    11.2038883 0.3418555
+ Ljung-Box Test     R    Q(15)    12.3032942 0.6559421
+ Ljung-Box Test     R    Q(20)    13.7596404 0.8424706
+ Ljung-Box Test     R^2  Q(10)    10.6310575 0.3869747
+ Ljung-Box Test     R^2  Q(15)    11.5616358 0.7118607
+ Ljung-Box Test     R^2  Q(20)    12.3213412 0.9045717
+ LM Arch Test       R    TR^2     10.6683473 0.5575347
+
+Information Criterion Statistics:
+      AIC       BIC       SIC      HQIC 
+-10.60196 -10.58730 -10.60197 -10.59649 
+
+
+Title:
+ GARCH Modelling 
+
+Call:
+ garchFit(formula = ~garch(1, 1), data = bitcoin_neg_log_ts, cond.dist = "norm", 
+    trace = FALSE) 
+
+Mean and Variance Equation:
+ data ~ garch(1, 1)
+<environment: 0x00000179ca2f43d8>
+ [data = bitcoin_neg_log_ts]
+
+Conditional Distribution:
+ norm 
+
+Coefficient(s):
+        mu       omega      alpha1       beta1  
+1.5195e-05  5.5039e-08  2.5355e-01  7.6629e-01  
+
+Std. Errors:
+ based on Hessian 
+
+Error Analysis:
+        Estimate  Std. Error  t value Pr(>|t|)    
+mu     1.520e-05   2.504e-05    0.607    0.544    
+omega  5.504e-08   1.383e-08    3.979 6.93e-05 ***
+alpha1 2.535e-01   2.830e-02    8.958  < 2e-16 ***
+beta1  7.663e-01   2.295e-02   33.394  < 2e-16 ***
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Log Likelihood:
+ 7632.108    normalized:  5.303758 
+
+Description:
+ Mon Dec 16 11:31:37 2024 by user: steve 
+
+
+Standardised Residuals Tests:
+                                   Statistic   p-Value
+ Jarque-Bera Test   R    Chi^2  2244.8197984 0.0000000
+ Shapiro-Wilk Test  R    W         0.9477135 0.0000000
+ Ljung-Box Test     R    Q(10)    11.2038883 0.3418555
+ Ljung-Box Test     R    Q(15)    12.3032942 0.6559421
+ Ljung-Box Test     R    Q(20)    13.7596404 0.8424706
+ Ljung-Box Test     R^2  Q(10)    10.6310575 0.3869747
+ Ljung-Box Test     R^2  Q(15)    11.5616358 0.7118607
+ Ljung-Box Test     R^2  Q(20)    12.3213412 0.9045717
+ LM Arch Test       R    TR^2     10.6683473 0.5575347
+
+Information Criterion Statistics:
+      AIC       BIC       SIC      HQIC 
+-10.60196 -10.58730 -10.60197 -10.59649 
+

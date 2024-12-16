@@ -1,0 +1,9 @@
+
+Anderson-Darling Test for Bitcoin_Neg_Log_Returns Negative Log Returns:
+
+	Anderson-Darling normality test
+
+data:  coredata(time_series)
+A = 26.277, p-value < 2.2e-16
+
+Result: The Bitcoin_Neg_Log_Returns negative log returns are NOT normally distributed (reject the null hypothesis of normality).

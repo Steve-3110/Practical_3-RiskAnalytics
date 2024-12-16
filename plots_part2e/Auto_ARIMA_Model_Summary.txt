@@ -1,0 +1,18 @@
+Auto-selected ARIMA Model using auto.arima():
+
+Series: bitcoin_neg_log_ts 
+ARIMA(4,0,0) with non-zero mean 
+
+Coefficients:
+         ar1      ar2     ar3     ar4   mean
+      0.0379  -0.0929  0.0139  0.0571  1e-04
+s.e.  0.0263   0.0264  0.0264  0.0264  0e+00
+
+sigma^2 = 2.029e-06:  log likelihood = 7391.85
+AIC=-14771.69   AICc=-14771.63   BIC=-14740.06
+
+Training set error measures:
+                       ME        RMSE         MAE      MPE     MAPE      MASE
+Training set 5.185117e-07 0.001421925 0.000941839 99.33742 130.2901 0.9947799
+                     ACF1
+Training set -0.000812297

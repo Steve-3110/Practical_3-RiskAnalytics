@@ -1,0 +1,9 @@
+
+Anderson-Darling Test for Ethereum_Neg_Log_Returns Negative Log Returns:
+
+	Anderson-Darling normality test
+
+data:  coredata(time_series)
+A = 15.353, p-value < 2.2e-16
+
+Result: The Ethereum_Neg_Log_Returns negative log returns are NOT normally distributed (reject the null hypothesis of normality).

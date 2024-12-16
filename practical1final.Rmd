@@ -1,0 +1,2243 @@
+---
+title: "Risk Analytics Practical 1"
+author: "Group 10"
+date: "2024-10-28"
+output: html_document
+---
+
+## 1a
+
+
+```{r}
+
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("tseries", "ggplot2", "xts")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save plots and results
+result_dir <- "plots_part1a"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 3. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that the 'Bitcoin' column exists
+if(!"Bitcoin" %in% names(data)){
+  stop("The 'Bitcoin' column is missing in 'Crypto_data.csv'. Please check the file.")
+}
+
+# -----------------------------
+# 4. Extract Bitcoin Prices and Create Time Series Object
+# -----------------------------
+
+# Extract Bitcoin prices
+bitcoin_prices <- data$Bitcoin
+
+# Check for non-numeric values
+if(!is.numeric(bitcoin_prices)){
+  stop("Bitcoin prices must be numeric.")
+}
+
+# Check for non-positive prices to avoid log issues (if needed later)
+if(any(bitcoin_prices <= 0, na.rm = TRUE)) {
+  stop("Bitcoin prices must be positive.")
+}
+
+# Convert to a time series object
+# Assuming the data is recorded every minute for 24 hours (1440 minutes)
+start_time <- as.POSIXct("2024-10-22 00:00:00")  # Adjust the start date as needed
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+bitcoin_ts <- xts(bitcoin_prices, order.by = time_sequence)
+
+# -----------------------------
+# 5. Plot the Raw Bitcoin Prices
+# -----------------------------
+
+# 5.1: Base R Plot
+png(filename = file.path(result_dir, "Bitcoin_Prices_Time_Series_BaseR.png"),
+    width = 1200, height = 800, res = 150)
+plot(bitcoin_ts, main = "Bitcoin Prices Over Time (Base R)",
+     ylab = "Price (USD)", xlab = "Time", col = "blue")
+dev.off()
+cat("Saved Base R Time Series Plot to 'Bitcoin_Prices_Time_Series_BaseR.png'.\n")
+
+# 5.2: ggplot2 Plot
+# Convert xts to data frame for ggplot2
+bitcoin_df <- data.frame(
+  Time = index(bitcoin_ts),
+  Price = coredata(bitcoin_ts)
+)
+
+# Generate ggplot2 time series plot with theme_bw
+ggplot_plot <- ggplot(bitcoin_df, aes(x = Time, y = Price)) +
+  geom_line(color = "darkgreen") +
+  ggtitle("Bitcoin Prices Over Time") +
+  xlab("Time") +
+  ylab("Price (USD)") +
+  theme_bw()
+
+# Save the ggplot2 plot
+ggsave(filename = file.path(result_dir, "Bitcoin_Prices_Time_Series_GGPlot2.png"),
+       plot = ggplot_plot, width = 10, height = 6, dpi = 300)
+cat("Saved ggplot2 Time Series Plot to 'Bitcoin_Prices_Time_Series_GGPlot2.png'.\n")
+
+# -----------------------------
+# 6. Plot the Autocorrelation Function (ACF)
+# -----------------------------
+
+# 6.1: Base R ACF Plot with Increased Lag Max
+png(filename = file.path(result_dir, "Bitcoin_Prices_ACF_BaseR.png"),
+    width = 1200, height = 800, res = 150)
+acf(bitcoin_ts, main = "Autocorrelation Function (ACF) of Bitcoin Prices (Base R)", lag.max = 100)
+dev.off()
+cat("Saved Base R ACF Plot to 'Bitcoin_Prices_ACF_BaseR.png'.\n")
+
+# 6.2: ggplot2 ACF Plot (Corrected with Theme_bw)
+# Compute ACF values with higher lag.max
+acf_values <- acf(bitcoin_ts, plot = FALSE, lag.max = 100)
+
+# Flatten the ACF and Lag matrices to vectors
+acf_df <- data.frame(
+  Lag = as.numeric(acf_values$lag),
+  ACF = as.numeric(acf_values$acf)
+)
+
+# Remove lag 0 for better visualization (optional)
+acf_df <- acf_df[acf_df$Lag != 0, ]
+
+# Generate ggplot2 ACF plot with theme_bw
+ggplot_acf <- ggplot(acf_df, aes(x = Lag, y = ACF)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_hline(yintercept = 0, color = "black") +
+  geom_hline(yintercept = c(2/sqrt(length(bitcoin_ts)), -2/sqrt(length(bitcoin_ts))),
+             color = "red", linetype = "dashed") +
+  ggtitle("Autocorrelation Function (ACF) of Bitcoin Prices") +
+  xlab("Lag (minutes)") +
+  ylab("ACF") +
+  theme_bw()
+
+# Save the ggplot2 ACF plot
+ggsave(filename = file.path(result_dir, "Bitcoin_Prices_ACF_GGPlot2.png"),
+       plot = ggplot_acf, width = 10, height = 6, dpi = 300)
+cat("Saved ggplot2 ACF Plot to 'Bitcoin_Prices_ACF_GGPlot2.png'.\n")
+
+# -----------------------------
+# 7. Perform Augmented Dickey-Fuller (ADF) Test
+# -----------------------------
+
+# Perform ADF test
+# Null hypothesis: The time series has a unit root (is non-stationary)
+# Alternative hypothesis: The time series is stationary
+adf_result <- adf.test(bitcoin_ts, alternative = "stationary")
+
+# Print ADF test results to console
+print(adf_result)
+
+# -----------------------------
+# 8. Save ADF Test Results and Interpretation
+# -----------------------------
+
+# Create a text file to save the ADF test results and interpretation
+sink(file = file.path(result_dir, "ADF_Test_Result_and_Interpretation.txt"))
+cat("Augmented Dickey-Fuller (ADF) Test Results for Bitcoin Prices\n")
+cat("-----------------------------------------------------------\n\n")
+print(adf_result)
+cat("\nInterpretation:\n")
+if(adf_result$p.value < 0.05){
+  cat("The p-value is less than 0.05. We reject the null hypothesis.\n")
+  cat("Conclusion: The Bitcoin price series is stationary.\n")
+} else {
+  cat("The p-value is greater than or equal to 0.05. We fail to reject the null hypothesis.\n")
+  cat("Conclusion: The Bitcoin price series is non-stationary.\n")
+}
+sink()
+cat("Saved ADF Test Results and Interpretation to 'ADF_Test_Result_and_Interpretation.txt'.\n")
+```
+
+## 1b
+
+```{r pressure, echo=FALSE}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE)
+    library(package_name, character.only = TRUE)
+  }
+}
+
+# List of required packages
+packages <- c("tseries", "ggplot2", "xts", "dplyr", "forecast")
+
+# Install and load each package
+sapply(packages, install_and_load)
+
+# -----------------------------
+# 2. Suppress the 'lag()' Warning from xts
+# -----------------------------
+
+# Suppress the specific warning related to 'lag()' from 'xts'
+options(xts.warn_dplyr_breaks_lag = FALSE)
+
+# -----------------------------
+# 3. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+# Assumes 'Crypto_data.csv' is in the working directory
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# -----------------------------
+# 4. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 5. Compute Negative Log Returns
+# -----------------------------
+
+# Extract Bitcoin and Ethereum prices
+bitcoin_prices <- data$Bitcoin
+ethereum_prices <- data$Ethereum
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+ethereum_neg_log_returns <- negative_log_returns(ethereum_prices)
+
+# -----------------------------
+# 6. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute for 24 hours (1440 minutes)
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for negative log returns
+# Note: Negative log returns have one less observation than the original prices
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+ethereum_neg_log_ts <- xts(ethereum_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 7. Plot Negative Log Returns
+# -----------------------------
+
+# Convert xts objects to data frames for ggplot2
+neg_log_df <- data.frame(
+  Time = index(bitcoin_neg_log_ts),
+  Bitcoin_Neg_Log_Returns = coredata(bitcoin_neg_log_ts),
+  Ethereum_Neg_Log_Returns = coredata(ethereum_neg_log_ts)
+)
+
+# Define a directory to save plots
+plot_dir <- "plots_part1b"
+if(!dir.exists(plot_dir)){
+  dir.create(plot_dir)
+  cat("Created directory for plots:", plot_dir, "\n")
+} else {
+  cat("Saving plots to directory:", plot_dir, "\n")
+}
+
+# Function to save plots
+save_plot <- function(plot, filename) {
+  ggsave(filename = file.path(plot_dir, filename), plot = plot, width = 10, height = 6, bg = "white")
+}
+
+# Plot Bitcoin Negative Log Returns
+plot_btc_neg_log <- ggplot(neg_log_df, aes(x = Time, y = Bitcoin_Neg_Log_Returns)) +
+  geom_line(color = "red", linewidth = 0.5) +
+  ggtitle("Bitcoin Negative Log Returns Over Time") +
+  xlab("Time") +
+  ylab("Negative Log Return") +
+  theme_bw()  # Changed to theme_bw() for white background
+
+save_plot(plot_btc_neg_log, "Bitcoin_Negative_Log_Returns.png")
+cat("Saved plot: Bitcoin_Negative_Log_Returns.png\n")
+
+# Plot Ethereum Negative Log Returns
+plot_eth_neg_log <- ggplot(neg_log_df, aes(x = Time, y = Ethereum_Neg_Log_Returns)) +
+  geom_line(color = "blue", linewidth = 0.5) +
+  ggtitle("Ethereum Negative Log Returns Over Time") +
+  xlab("Time") +
+  ylab("Negative Log Return") +
+  theme_bw()  # Changed to theme_bw() for white background
+
+save_plot(plot_eth_neg_log, "Ethereum_Negative_Log_Returns.png")
+cat("Saved plot: Ethereum_Negative_Log_Returns.png\n")
+
+# -----------------------------
+# 8. Combined Plot for Comparison
+# -----------------------------
+
+combined_plot <- ggplot(neg_log_df, aes(x = Time)) +
+  geom_line(aes(y = Bitcoin_Neg_Log_Returns, color = "Bitcoin"), linewidth = 0.5) +
+  geom_line(aes(y = Ethereum_Neg_Log_Returns, color = "Ethereum"), linewidth = 0.5) +
+  ggtitle("Bitcoin vs Ethereum Negative Log Returns Over Time") +
+  xlab("Time") +
+  ylab("Negative Log Return") +
+  scale_color_manual(name = "Cryptocurrency", values = c("Bitcoin" = "red", "Ethereum" = "blue")) +
+  theme_bw()  # Changed to theme_bw() for white background
+
+save_plot(combined_plot, "Bitcoin_vs_Ethereum_Negative_Log_Returns.png")
+cat("Saved plot: Bitcoin_vs_Ethereum_Negative_Log_Returns.png\n")
+
+# -----------------------------
+# 9. Assess Stationarity
+# -----------------------------
+
+# Function to assess stationarity using plots and ADF test
+assess_stationarity <- function(time_series, crypto_name) {
+  # Define file paths for plots
+  ts_plot_file <- file.path(plot_dir, paste0(crypto_name, "_Negative_Log_Returns_TS.png"))
+  acf_plot_file <- file.path(plot_dir, paste0(crypto_name, "_Negative_Log_Returns_ACF.png"))
+
+  # Plot the time series and save
+  ts_plot <- autoplot(time_series) +
+    ggtitle(paste(crypto_name, "Negative Log Returns Over Time")) +
+    xlab("Time") +
+    ylab("Negative Log Return") +
+    theme_bw()}
+```
+
+
+## 1c
+```{r}
+
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE)
+    library(package_name, character.only = TRUE)
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "nortest", "xts", "dplyr")
+
+# Install and load each package
+sapply(packages, install_and_load)
+
+# -----------------------------
+# 2. Suppress the 'lag()' Warning from xts
+# -----------------------------
+
+# Suppress the specific warning related to 'lag()' from 'xts'
+options(xts.warn_dplyr_breaks_lag = FALSE)
+
+# -----------------------------
+# 3. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+# Assumes 'Crypto_data.csv' is in the working directory
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# -----------------------------
+# 4. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 5. Compute Negative Log Returns
+# -----------------------------
+
+# Extract Bitcoin and Ethereum prices
+bitcoin_prices <- data$Bitcoin
+ethereum_prices <- data$Ethereum
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+ethereum_neg_log_returns <- negative_log_returns(ethereum_prices)
+
+# -----------------------------
+# 6. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute for 24 hours (1440 minutes)
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")  # Adjust the date as needed
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for negative log returns
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+ethereum_neg_log_ts <- xts(ethereum_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 7. Create a Directory to Save Plots
+# -----------------------------
+
+# Define a directory to save plots
+plot_dir <- "plots_part1c"
+if(!dir.exists(plot_dir)){
+  dir.create(plot_dir)
+  cat("Created directory for plots:", plot_dir, "\n")
+} else {
+  cat("Saving plots to directory:", plot_dir, "\n")
+}
+
+# -----------------------------
+# 8. Plot Histograms with Overlaid Normal Distribution
+# -----------------------------
+
+# Convert xts objects to data frames for ggplot2
+neg_log_df <- data.frame(
+  Bitcoin_Neg_Log_Returns = coredata(bitcoin_neg_log_ts),
+  Ethereum_Neg_Log_Returns = coredata(ethereum_neg_log_ts)
+)
+
+# Function to save plots
+save_plot <- function(plot, filename) {
+  ggsave(filename = file.path(plot_dir, filename), plot = plot, width = 10, height = 6, bg = "white")
+}
+
+# Plot Histogram for Bitcoin Negative Log Returns
+hist_btc <- ggplot(neg_log_df, aes(x = Bitcoin_Neg_Log_Returns)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 0.001, fill = "red", alpha = 0.6, color = "black") +
+  stat_function(fun = dnorm, args = list(mean = mean(neg_log_df$Bitcoin_Neg_Log_Returns, na.rm = TRUE),
+                                         sd = sd(neg_log_df$Bitcoin_Neg_Log_Returns, na.rm = TRUE)),
+                color = "blue", size = 1) +
+  ggtitle("Histogram of Bitcoin Negative Log Returns with Normal Curve") +
+  xlab("Bitcoin Negative Log Return") +
+  ylab("Density") +
+  theme_bw()
+
+save_plot(hist_btc, "Histogram_Bitcoin_Negative_Log_Returns.png")
+cat("Saved plot: Histogram_Bitcoin_Negative_Log_Returns.png\n")
+
+# Plot Histogram for Ethereum Negative Log Returns
+hist_eth <- ggplot(neg_log_df, aes(x = Ethereum_Neg_Log_Returns)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 0.001, fill = "blue", alpha = 0.6, color = "black") +
+  stat_function(fun = dnorm, args = list(mean = mean(neg_log_df$Ethereum_Neg_Log_Returns, na.rm = TRUE),
+                                         sd = sd(neg_log_df$Ethereum_Neg_Log_Returns, na.rm = TRUE)),
+                color = "red", size = 1) +
+  ggtitle("Histogram of Ethereum Negative Log Returns with Normal Curve") +
+  xlab("Ethereum Negative Log Return") +
+  ylab("Density") +
+  theme_bw()
+
+save_plot(hist_eth, "Histogram_Ethereum_Negative_Log_Returns.png")
+cat("Saved plot: Histogram_Ethereum_Negative_Log_Returns.png\n")
+
+# -----------------------------
+# 9. Plot QQ-Plots
+# -----------------------------
+
+# Function to create and save QQ-plot
+create_qqplot <- function(data, crypto_name) {
+  qq_plot <- ggplot(data, aes(sample = data[[crypto_name]])) +
+    stat_qq(color = "darkgreen") +
+    stat_qq_line(color = "red") +
+    ggtitle(paste("QQ-Plot of", crypto_name, "Negative Log Returns")) +
+    xlab("Theoretical Quantiles") +
+    ylab("Sample Quantiles") +
+    theme_bw()
+
+  filename <- paste0("QQPlot_", crypto_name, "_Negative_Log_Returns.png")
+  save_plot(qq_plot, filename)
+  cat("Saved plot:", filename, "\n")
+}
+
+# Create QQ-Plot for Bitcoin Negative Log Returns
+create_qqplot(neg_log_df, "Bitcoin_Neg_Log_Returns")
+
+# Create QQ-Plot for Ethereum Negative Log Returns
+create_qqplot(neg_log_df, "Ethereum_Neg_Log_Returns")
+
+# -----------------------------
+# 10. Perform Anderson-Darling Test for Normality
+# -----------------------------
+
+# Function to perform Anderson-Darling test and save results
+perform_ad_test <- function(time_series, crypto_name) {
+  # Perform Anderson-Darling Test
+  ad_result <- ad.test(coredata(time_series))
+
+  # Create a text file to save the test results
+  ad_output_file <- file.path(plot_dir, paste0("Anderson_Darling_Test_", crypto_name, ".txt"))
+  sink(ad_output_file)
+  cat(paste0("\nAnderson-Darling Test for ", crypto_name, " Negative Log Returns:\n"))
+  print(ad_result)
+
+  # Interpretation based on p-value
+  if(ad_result$p.value < 0.05){
+    cat("Result: The ", crypto_name, " negative log returns are NOT normally distributed (reject the null hypothesis of normality).\n", sep = "")
+  } else {
+    cat("Result: The ", crypto_name, " negative log returns are normally distributed (fail to reject the null hypothesis of normality).\n", sep = "")
+  }
+  sink()
+
+  # Additionally, print to console
+  cat("\nAnderson-Darling Test for ", crypto_name, " Negative Log Returns:\n", sep = "")
+  print(ad_result)
+  if(ad_result$p.value < 0.05){
+    cat("Result: The ", crypto_name, " negative log returns are NOT normally distributed (reject the null hypothesis of normality).\n", sep = "")
+  } else {
+    cat("Result: The ", crypto_name, " negative log returns are normally distributed (fail to reject the null hypothesis of normality).\n", sep = "")
+  }
+}
+
+# Perform Anderson-Darling Test for Bitcoin Negative Log Returns
+perform_ad_test(bitcoin_neg_log_ts, "Bitcoin_Neg_Log_Returns")
+
+# Perform Anderson-Darling Test for Ethereum Negative Log Returns
+perform_ad_test(ethereum_neg_log_ts, "Ethereum_Neg_Log_Returns")
+
+```
+
+## 1d
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+# List of required packages
+packages <- c("tseries", "ggplot2", "MASS")
+
+# -----------------------------
+# 2. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+d_crypto <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that the 'Bitcoin' column exists
+if(!"Bitcoin" %in% names(data)){
+  stop("The 'Bitcoin' column is missing in 'Crypto_data.csv'. Please check the file.")
+}
+
+# Example of computing negative log returns if needed:
+d_crypto$neg_log_returns_bitcoin <- c(NA, -diff(log(d_crypto$Bitcoin)))
+
+# Check for non-finite values in Bitcoin returns (assuming it's called neg_log_returns_bitcoin)
+bitcoin_returns <- na.omit(d_crypto$neg_log_returns_bitcoin)
+
+# Remove any remaining non-finite values
+bitcoin_returns <- bitcoin_returns[is.finite(bitcoin_returns)]
+
+# Ensure the length of bitcoin_returns is sufficient for distribution fitting and plotting
+if (length(bitcoin_returns) <= 1) {
+  stop("Not enough data in bitcoin_returns for further analysis.")
+}
+
+# -----------------------------
+# 3. Fit a t-distribution using the ghyp package
+# -----------------------------
+
+#fit_t <- fit.tuv(bitcoin_returns)
+
+# Extract degrees of freedom (df) for the t-distribution
+#df_t <- fit_t@lambda  # Lambda corresponds to degrees of freedom (df)
+
+# -----------------------------
+# 4. Fit a normal distribution using MASS
+# -----------------------------
+
+fit_norm <- MASS::fitdistr(bitcoin_returns, "normal")
+
+# Extract the parameters of the fitted normal distribution
+mean_norm <- fit_norm$estimate["mean"]
+sd_norm <- fit_norm$estimate["sd"]
+
+# -----------------------------
+#  5. Plot histogram of Bitcoin returns and overlay t-distribution and normal distribution densities
+# -----------------------------
+ggplot() +
+  geom_histogram(aes(x = bitcoin_returns, y = ..density..), 
+                 bins = 50, fill = "lightblue", alpha = 0.7, 
+                 color = "black", boundary = 0) +
+  stat_function(fun = function(x) dghyp(x, fit_t), 
+                color = "red", size = 1.2, 
+                linetype = "solid", 
+                aes(label = "t-distribution (ghyp)")) +  # t-distribution density
+  stat_function(fun = dnorm, args = list(mean = mean_norm, sd = sd_norm), 
+                color = "blue", size = 1.2, 
+                linetype = "dashed", 
+                aes(label = "Normal distribution")) +  # Normal distribution density
+  labs(title = "Empirical Bitcoin Returns with Fitted Distributions",
+       x = "Bitcoin Returns", 
+       y = "Density") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+
+## 1e
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE)
+    library(package_name, character.only = TRUE)
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2")
+
+# Install and load each package
+sapply(packages, install_and_load)
+# Define the range for the x-axis
+x_values <- seq(-4, 4, by = 0.01)
+
+# Calculate the density of the normal and t-distributions
+normal_density <- dnorm(x_values, mean = 0, sd = 1)
+#t_density <- dt(x_values, df = fit_t$estimate["df"])  # Use the estimated df from the fitted t-distribution
+
+# Create a data frame for ggplot
+density_data <- data.frame(
+  x = x_values,
+  Normal = normal_density
+  #T_Distribution = t_density
+)
+
+# Plot the densities
+ggplot(density_data, aes(x = x)) +
+  geom_line(aes(y = Normal, color = "Normal Distribution"), size = 1) +
+  #geom_line(aes(y = T_Distribution, color = "t-Distribution"), size = 1) +
+  labs(title = "Comparison of Normal and t-Distribution Densities",
+       x = "Value",
+       y = "Density") +
+  scale_color_manual(values = c("blue", "red")) +
+  theme_minimal()
+
+
+```
+
+## 2a
+
+```{r}
+# Function to install and load required packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "zoo", "dplyr", "gridExtra")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Read the Crypto_data.csv File
+# -----------------------------
+
+# Define the path to the CSV file
+data_file <- "Crypto_data.csv"
+
+# Check if the file exists
+if(!file.exists(data_file)){
+  stop(paste("Data file", data_file, "not found in the working directory."))
+}
+
+# Read the CSV file into a data frame
+crypto_data <- read.csv(data_file, header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that the 'Bitcoin' column exists
+if(!"Bitcoin" %in% names(crypto_data)){
+  stop("The 'Bitcoin' column is missing in 'Crypto_data.csv'.")
+}
+
+# -----------------------------
+# 3. Compute Negative Log Returns
+# -----------------------------
+
+# Function to compute negative log returns
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# Extract Bitcoin prices
+bitcoin_prices <- crypto_data$Bitcoin
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+
+# -----------------------------
+# 4. Create Time Series Object
+# -----------------------------
+
+# Assuming data is recorded every minute for 24 hours (1440 minutes)
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")  # Example start date
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+bitcoin_raw_ts <- xts(bitcoin_prices, order.by = time_sequence)
+
+# -----------------------------
+# 5. Create a Directory to Save Plots
+# -----------------------------
+
+# Define a directory to save plots
+plot_dir <- "plots_part2a"
+
+# Create the directory if it doesn't exist
+if(!dir.exists(plot_dir)){
+  dir.create(plot_dir)
+  cat("Created directory for plots:", plot_dir, "\n")
+} else {
+  cat("Saving plots to directory:", plot_dir, "\n")
+}
+
+# -----------------------------
+# 6. Prepare Data for ACF Plotting
+# -----------------------------
+
+# Extract core data and remove any NAs
+bitcoin_neg_log_data <- as.numeric(na.omit(coredata(bitcoin_neg_log_ts)))
+bitcoin_raw_data <- as.numeric(na.omit(coredata(bitcoin_raw_ts)))
+
+# Debugging: Print lengths and first few elements
+cat("Length of Raw Bitcoin Prices:", length(bitcoin_raw_data), "\n")
+cat("First few Raw Bitcoin Prices:", head(bitcoin_raw_data), "\n\n")
+
+cat("Length of Bitcoin Negative Log Returns:", length(bitcoin_neg_log_data), "\n")
+cat("First few Bitcoin Negative Log Returns:", head(bitcoin_neg_log_data), "\n\n")
+
+# -----------------------------
+# 7. Plot the ACF of Raw Series and Negative Log Returns
+# -----------------------------
+
+# Define a function to create ACF plots using base R and ggplot2
+create_acf_plot <- function(data_vector, title) {
+  # Compute ACF
+  acf_result <- acf(data_vector, plot = FALSE)
+
+  # Convert ACF to data frame for ggplot2
+  acf_df <- with(acf_result, data.frame(lag, acf))
+
+  # Create ACF plot using ggplot2
+  p <- ggplot(acf_df, aes(x = lag, y = acf)) +
+    geom_bar(stat = "identity", position = "dodge", fill = "steelblue") +
+    geom_hline(yintercept = 0, color = "black") +
+    geom_hline(yintercept = c(1.96/sqrt(length(data_vector)), -1.96/sqrt(length(data_vector))),
+               color = "red", linetype = "dashed") +
+    labs(title = title, x = "Lag", y = "Autocorrelation") +
+    theme_minimal()
+
+  return(p)
+}
+
+# Create ACF plots
+acf_raw_plot <- create_acf_plot(bitcoin_raw_data, "ACF of Raw Bitcoin Prices")
+acf_neg_log_plot <- create_acf_plot(bitcoin_neg_log_data, "ACF of Bitcoin Negative Log Returns")
+
+# Arrange both plots side by side
+combined_acf_plot <- gridExtra::grid.arrange(acf_raw_plot, acf_neg_log_plot, ncol = 2)
+
+# -----------------------------
+# 8. Save the Combined ACF Plot
+# -----------------------------
+
+# Define the filename for the combined ACF plot
+acf_plot_filename <- "ACF_Plot_Raw_vs_NegLogReturns_Bitcoin.png"
+
+# Save the plot
+ggsave(filename = file.path(plot_dir, acf_plot_filename), plot = combined_acf_plot,
+       width = 16, height = 8, dpi = 300, bg = "white")
+
+cat("Saved ACF plot as:", acf_plot_filename, "\n")
+
+```
+
+## 2b
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "dplyr", "gridExtra", "nortest", "forecast")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that required columns exist
+required_columns <- c("Bitcoin")
+missing_columns <- setdiff(required_columns, names(data))
+if(length(missing_columns) > 0){
+  stop(paste("The following required columns are missing in 'Crypto_data.csv':",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# -----------------------------
+# 3. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 4. Compute Negative Log Returns
+# -----------------------------
+
+# Extract Bitcoin prices
+bitcoin_prices <- data$Bitcoin
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+
+# -----------------------------
+# 5. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute for 24 hours (1440 minutes)
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")  # Adjust the date as needed
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for raw prices and negative log returns
+bitcoin_raw_ts <- xts(bitcoin_prices, order.by = time_sequence)
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 6. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save results
+result_dir <- "plots_part2b"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 7. Perform Ljung-Box Tests
+# -----------------------------
+
+# Function to perform Ljung-Box test and print results
+perform_ljung_box <- function(ts_data, series_name, max_lag = 20) {
+  # Perform Ljung-Box test
+  ljung_box_result <- Box.test(ts_data, lag = max_lag, type = "Ljung-Box")
+
+  # Print the results
+  cat("\nLjung-Box Test for", series_name, ":\n")
+  print(ljung_box_result)
+
+  # Interpretation
+  if(ljung_box_result$p.value < 0.05){
+    cat("Conclusion: Reject the null hypothesis. There is evidence of serial dependence in", series_name, ".\n")
+  } else {
+    cat("Conclusion: Do not reject the null hypothesis. No evidence of serial dependence in", series_name, ".\n")
+  }
+}
+
+# Perform Ljung-Box test on Raw Bitcoin Prices
+perform_ljung_box(bitcoin_raw_ts, "Raw Bitcoin Prices")
+
+# Perform Ljung-Box test on Bitcoin Negative Log Returns
+perform_ljung_box(bitcoin_neg_log_ts, "Bitcoin Negative Log Returns")
+
+# -----------------------------
+# 8. Save Test Results to a Text File (Optional)
+# -----------------------------
+
+# Redirect console output to a text file
+sink(file = file.path(result_dir, "LjungBox_Test_Results.txt"))
+
+# Perform Ljung-Box test on Raw Bitcoin Prices
+perform_ljung_box(bitcoin_raw_ts, "Raw Bitcoin Prices")
+
+# Perform Ljung-Box test on Bitcoin Negative Log Returns
+perform_ljung_box(bitcoin_neg_log_ts, "Bitcoin Negative Log Returns")
+
+# Stop redirecting output
+sink()
+
+cat("Ljung-Box test results saved to 'LjungBox_Test_Results.txt' in", result_dir, "directory.\n")
+
+
+```
+
+## 2c
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "dplyr", "gridExtra", "forecast", "tseries")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that required columns exist
+required_columns <- c("Bitcoin")
+missing_columns <- setdiff(required_columns, names(data))
+if(length(missing_columns) > 0){
+  stop(paste("The following required columns are missing in 'Crypto_data.csv':",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# -----------------------------
+# 3. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 4. Compute Negative Log Returns
+# -----------------------------
+
+# Extract Bitcoin prices
+bitcoin_prices <- data$Bitcoin
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+
+# -----------------------------
+# 5. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute for 24 hours (1440 minutes)
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")  # Adjust the date as needed
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for raw prices and negative log returns
+bitcoin_raw_ts <- xts(bitcoin_prices, order.by = time_sequence)
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 6. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save plots and results
+result_dir <- "plots_part2c"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 7. Visualize ACF and PACF
+# -----------------------------
+
+# Plot ACF and PACF for Negative Log Returns
+
+# ACF Plot
+acf_plot <- ggAcf(bitcoin_neg_log_ts, lag.max = 30) +
+  ggtitle("ACF of Bitcoin Negative Log Returns") +
+  theme_bw()
+
+# PACF Plot
+pacf_plot <- ggPacf(bitcoin_neg_log_ts, lag.max = 30) +
+  ggtitle("PACF of Bitcoin Negative Log Returns") +
+  theme_bw()
+
+# Combine ACF and PACF plots side by side
+combined_acf_pacf <- gridExtra::grid.arrange(acf_plot, pacf_plot, ncol = 2)
+
+# Save the combined ACF and PACF plots
+ggsave(filename = file.path(result_dir, "ACF_PACF_NegLogReturns.png"), plot = combined_acf_pacf, width = 16, height = 8, dpi = 300)
+cat("Saved ACF and PACF plots for Negative Log Returns.\n")
+
+# -----------------------------
+# 8. Propose ARIMA Models Based on ACF and PACF
+# -----------------------------
+
+proposed_model_order <- c(1, 0, 0)
+proposed_model <- arima(bitcoin_neg_log_ts, order = proposed_model_order)
+
+# Summarize the proposed model
+proposed_model_summary <- summary(proposed_model)
+print(proposed_model_summary)
+
+# Save the summary to a text file
+sink(file = file.path(result_dir, "Proposed_ARIMA_Model_Summary.txt"))
+cat("Proposed ARIMA Model: ARIMA(1,0,0)\n\n")
+print(proposed_model_summary)
+sink()
+cat("Saved Proposed ARIMA Model Summary to 'Proposed_ARIMA_Model_Summary.txt'.\n")
+
+# -----------------------------
+# 9. Select ARIMA Model Using auto.arima()
+# -----------------------------
+
+# Use auto.arima() to select the best-fitting ARIMA model
+auto_model <- auto.arima(bitcoin_neg_log_ts, seasonal = FALSE, stepwise = FALSE, approximation = FALSE, trace = TRUE)
+
+# Summarize the auto.arima model
+auto_model_summary <- summary(auto_model)
+print(auto_model_summary)
+
+# Save the summary to a text file
+sink(file = file.path(result_dir, "Auto_ARIMA_Model_Summary.txt"))
+cat("Auto-selected ARIMA Model using auto.arima():\n\n")
+print(auto_model_summary)
+sink()
+cat("Saved Auto ARIMA Model Summary to 'Auto_ARIMA_Model_Summary.txt'.\n")
+
+# -----------------------------
+# 10. Compare Proposed and Auto-selected Models
+# -----------------------------
+
+# Create a comparison table
+# compute_aic_bic <- function(model, data_length) {
+#   # Extract log-likelihood
+#   llh <- model@fit$llh
+#   
+#   # Number of parameters
+#   k <- length(coef(model))
+#   
+#   # Compute AIC and BIC
+#   aic_val <- 2 * k - 2 * llh
+#   bic_val <- log(data_length) * k - 2 * llh
+#   
+#   return(list(AIC = aic_val, BIC = bic_val))
+# }
+# 
+# # Print the comparison table
+# print(compute_aic_bic)
+# 
+# # Save the comparison table to a CSV file
+# write.csv(compute_aic_bic, file = file.path(result_dir, "Model_Comparison.csv"), row.names = FALSE)
+# cat("Saved Model Comparison to 'Model_Comparison.csv'.\n")
+
+# -----------------------------
+# 11. Assess Residuals of the Auto-selected Model
+# -----------------------------
+
+# Plot Residuals
+residuals_plot <- ggplot(data = data.frame(Residuals = residuals(auto_model)), aes(x = Residuals)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black") +
+  geom_density(color = "red") +
+  ggtitle("Histogram and Density of Residuals (Auto ARIMA Model)") +
+  xlab("Residuals") +
+  theme_bw()
+
+# Save Residuals Plot
+ggsave(filename = file.path(result_dir, "Residuals_Histogram_Auto_ARIMA.png"), plot = residuals_plot, width = 8, height = 6, dpi = 300)
+cat("Saved Residuals Histogram for Auto ARIMA Model.\n")
+
+# Plot ACF of Residuals
+residuals_acf <- ggAcf(residuals(auto_model), lag.max = 30) +
+  ggtitle("ACF of Residuals (Auto ARIMA Model)") +
+  theme_bw()
+
+# Save ACF of Residuals Plot
+ggsave(filename = file.path(result_dir, "Residuals_ACF_Auto_ARIMA.png"), plot = residuals_acf, width = 8, height = 6, dpi = 300)
+cat("Saved ACF of Residuals for Auto ARIMA Model.\n")
+
+# Perform Ljung-Box Test on Residuals
+ljung_box_residuals <- Box.test(residuals(auto_model), lag = 20, type = "Ljung-Box")
+
+# Print and save the Ljung-Box test results
+cat("\nLjung-Box Test for Residuals of Auto ARIMA Model:\n")
+print(ljung_box_residuals)
+
+# Save the Ljung-Box test results to a text file
+sink(file = file.path(result_dir, "LjungBox_Residuals_Auto_ARIMA.txt"))
+cat("Ljung-Box Test for Residuals of Auto ARIMA Model:\n\n")
+print(ljung_box_residuals)
+sink()
+cat("Saved Ljung-Box Test Results for Residuals to 'LjungBox_Residuals_Auto_ARIMA.txt'.\n")
+
+```
+
+## 2d
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "dplyr", "gridExtra", "fGarch", "forecast", "tseries")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that required columns exist
+required_columns <- c("Bitcoin")
+missing_columns <- setdiff(required_columns, names(data))
+if(length(missing_columns) > 0){
+  stop(paste("The following required columns are missing in 'Crypto_data.csv':",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# -----------------------------
+# 3. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 4. Compute Negative Log Returns
+# -----------------------------
+
+# Extract Bitcoin prices
+bitcoin_prices <- data$Bitcoin
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+
+# -----------------------------
+# 5. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute for 24 hours (1440 minutes)
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")  # Adjust the date as needed
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for raw prices and negative log returns
+bitcoin_raw_ts <- xts(bitcoin_prices, order.by = time_sequence)
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 6. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save plots and results
+result_dir <- "plots_part2d"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 7. Fit GARCH(1,1) Models
+# -----------------------------
+
+# Load the fGarch library
+library(fGarch)
+
+# Fit GARCH(1,1) with Normal Distribution
+garch_norm <- tryCatch({
+  garchFit(~ garch(1,1), data = bitcoin_neg_log_ts, cond.dist = "norm", trace = FALSE)
+}, error = function(e){
+  cat("Error in fitting GARCH(1,1) with Normal Distribution:", e$message, "\n")
+  return(NULL)
+})
+
+# Fit GARCH(1,1) with Standardized t-Distribution
+garch_t <- tryCatch({
+  garchFit(~ garch(1,1), data = bitcoin_neg_log_ts, cond.dist = "std", trace = FALSE)
+}, error = function(e){
+  cat("Error in fitting GARCH(1,1) with t-Distribution:", e$message, "\n")
+  return(NULL)
+})
+
+# -----------------------------
+# 8. Summarize and Save Model Summaries
+# -----------------------------
+
+# Function to save model summary to a text file
+save_model_summary <- function(model, model_name, directory) {
+  if(!is.null(model)){
+    sink(file = file.path(directory, paste0(model_name, "_Summary.txt")))
+    cat(paste("Model Summary for", model_name, ":\n\n"))
+    print(summary(model))
+    sink()
+    cat(paste("Saved", model_name, "Summary to", paste0(model_name, "_Summary.txt"), "\n"))
+  } else {
+    cat(paste("Model", model_name, "is NULL. Skipping summary.\n"))
+  }
+}
+
+# Save summaries
+save_model_summary(garch_norm, "GARCH_Normal", result_dir)
+save_model_summary(garch_t, "GARCH_t", result_dir)
+
+# -----------------------------
+# 9. Plot Conditional Volatility
+# -----------------------------
+
+# Function to plot conditional volatility
+plot_conditional_volatility <- function(model, model_name, directory) {
+  if(!is.null(model)){
+    cond_vol <- volatility(model)
+    dates <- index(bitcoin_neg_log_ts)
+    vol_df <- data.frame(Date = dates, Conditional_Volatility = cond_vol)
+
+    vol_plot <- ggplot(vol_df, aes(x = Date, y = Conditional_Volatility)) +
+      geom_line(color = "blue") +
+      ggtitle(paste("Conditional Volatility -", model_name)) +
+      xlab("Date-Time") +
+      ylab("Conditional Volatility") +
+      theme_bw()
+
+    # Save the plot
+    ggsave(filename = file.path(directory, paste0("Conditional_Volatility_", model_name, ".png")),
+           plot = vol_plot, width = 16, height = 6, dpi = 300)
+    cat(paste("Saved Conditional Volatility plot for", model_name, "\n"))
+  } else {
+    cat(paste("Model", model_name, "is NULL. Skipping Conditional Volatility plot.\n"))
+  }
+}
+
+# Plot conditional volatilities
+plot_conditional_volatility(garch_norm, "GARCH_Normal", result_dir)
+plot_conditional_volatility(garch_t, "GARCH_t", result_dir)
+
+# -----------------------------
+# 10. Assess Residuals
+# -----------------------------
+
+# Function to assess residuals
+assess_residuals <- function(model, model_name, directory) {
+  if(!is.null(model)){
+    # Extract standardized residuals
+    std_resid <- residuals(model, standardize = TRUE)
+
+    # Convert to data frame for plotting
+    resid_df <- data.frame(Date = index(bitcoin_neg_log_ts), Residuals = std_resid)
+
+    # Plot Residuals Over Time
+    resid_time_plot <- ggplot(resid_df, aes(x = Date, y = Residuals)) +
+      geom_line(color = "darkgreen") +
+      ggtitle(paste("Standardized Residuals Over Time -", model_name)) +
+      xlab("Date-Time") +
+      ylab("Standardized Residuals") +
+      theme_bw()
+
+    # Plot Histogram and Density
+    resid_hist_plot <- ggplot(resid_df, aes(x = Residuals)) +
+      geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black") +
+      geom_density(color = "red") +
+      ggtitle(paste("Histogram and Density of Residuals -", model_name)) +
+      xlab("Standardized Residuals") +
+      theme_bw()
+
+    # Plot ACF of Residuals
+    resid_acf_plot <- ggAcf(std_resid, lag.max = 30) +
+      ggtitle(paste("ACF of Residuals -", model_name)) +
+      theme_bw()
+
+    # Combine all plots into one grid
+    combined_resid_plots <- gridExtra::grid.arrange(resid_time_plot, resid_hist_plot, resid_acf_plot, ncol = 2)
+
+    # Save the combined residual plots
+    ggsave(filename = file.path(directory, paste0("Residuals_Plots_", model_name, ".png")),
+           plot = combined_resid_plots, width = 16, height = 12, dpi = 300)
+    cat(paste("Saved Residuals plots for", model_name, "\n"))
+
+    # Perform Ljung-Box Test on Residuals
+    ljung_box_resid <- Box.test(std_resid, lag = 20, type = "Ljung-Box")
+
+    # Print and save the Ljung-Box test results
+    cat(paste("\nLjung-Box Test for Residuals of", model_name, ":\n"))
+    print(ljung_box_resid)
+
+    sink(file = file.path(directory, paste0("LjungBox_Test_Residuals_", model_name, ".txt")))
+    cat(paste("Ljung-Box Test for Residuals of", model_name, ":\n\n"))
+    print(ljung_box_resid)
+    sink()
+    cat(paste("Saved Ljung-Box Test Results for Residuals of", model_name, "to 'LjungBox_Test_Residuals_", model_name, ".txt'.\n"))
+  } else {
+    cat(paste("Model", model_name, "is NULL. Skipping residual assessment.\n"))
+  }
+}
+
+# Assess residuals for both models
+assess_residuals(garch_norm, "GARCH_Normal", result_dir)
+assess_residuals(garch_t, "GARCH_t", result_dir)
+
+# -----------------------------
+# 11. Compare Model Fits
+# -----------------------------
+
+compute_aic_bic <- function(model, data_length) {
+  # Extract log-likelihood
+  llh <- model@fit$llh
+  
+  # Number of parameters
+  k <- length(coef(model))
+  
+  # Compute AIC and BIC
+  aic_val <- 2 * k - 2 * llh
+  bic_val <- log(data_length) * k - 2 * llh
+  
+  return(list(AIC = aic_val, BIC = bic_val))
+}
+
+
+
+# Function to compare models based on AIC and BIC
+compare_models <- function(model1, model2, model1_name, model2_name, directory) {
+  if(!is.null(model1) & !is.null(model2)){
+    # Extract the number of observations used (length of the returns series)
+    n <- length(bitcoin_neg_log_ts)
+    
+    # Compute AIC and BIC manually for each model
+    res1 <- compute_aic_bic(model1, n)
+    res2 <- compute_aic_bic(model2, n)
+    
+    comparison_table <- data.frame(
+      Model = c(model1_name, model2_name),
+      AIC = c(res1$AIC, res2$AIC),
+      BIC = c(res1$BIC, res2$BIC)
+    )
+
+    print(comparison_table)
+
+    # Save the comparison table to a CSV file
+    write.csv(comparison_table, file = file.path(directory, "GARCH_Model_Comparison.csv"), row.names = FALSE)
+    cat("Saved GARCH Model Comparison to 'GARCH_Model_Comparison.csv'.\n")
+  } else {
+    cat("One or both models are NULL. Skipping model comparison.\n")
+  }
+}
+
+# Compare GARCH_Normal and GARCH_t
+compare_models(garch_norm, garch_t, "GARCH_Normal", "GARCH_t", result_dir)
+
+
+```
+
+
+## 2e
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "dplyr", "gridExtra", "forecast", "fGarch", "tseries")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Suppress the 'lag()' Warning from xts
+# -----------------------------
+
+# Suppress the specific warning related to 'lag()' from 'xts'
+options(xts.warn_dplyr_breaks_lag = FALSE)
+
+# -----------------------------
+# 3. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that required columns exist
+required_columns <- c("Bitcoin")
+missing_columns <- setdiff(required_columns, names(data))
+if(length(missing_columns) > 0){
+  stop(paste("The following required columns are missing in 'Crypto_data.csv':",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# -----------------------------
+# 4. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 5. Compute Negative Log Returns
+# -----------------------------
+
+# Extract Bitcoin prices
+bitcoin_prices <- data$Bitcoin
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+
+# -----------------------------
+# 6. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute for 24 hours (1440 minutes)
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for raw prices and negative log returns
+bitcoin_raw_ts <- xts(bitcoin_prices, order.by = time_sequence)
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 7. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save plots and results
+result_dir <- "plots_part2e"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 8. Fit ARIMA Model on Negative Log Returns
+# -----------------------------
+
+# Use auto.arima() to select the best-fitting ARIMA model
+auto_model <- tryCatch({
+  auto.arima(bitcoin_neg_log_ts, seasonal = FALSE, stepwise = FALSE, approximation = FALSE, trace = TRUE)
+}, error = function(e) {
+  cat("Error in auto.arima():", e$message, "\n")
+  return(NULL)
+})
+
+if(!is.null(auto_model)){
+  # Summarize the auto.arima model
+  auto_model_summary <- summary(auto_model)
+  print(auto_model_summary)
+
+  # Save the summary to a text file
+  sink(file = file.path(result_dir, "Auto_ARIMA_Model_Summary.txt"))
+  cat("Auto-selected ARIMA Model using auto.arima():\n\n")
+  print(auto_model_summary)
+  sink()
+  cat("Saved Auto ARIMA Model Summary to 'Auto_ARIMA_Model_Summary.txt'.\n")
+} else {
+  stop("auto.arima() failed. Cannot proceed with GARCH modeling.")
+}
+
+# -----------------------------
+# 9. Extract Residuals from ARIMA Model
+# -----------------------------
+
+# Extract residuals from the ARIMA model
+arima_residuals <- residuals(auto_model)
+
+# Convert residuals to xts object for consistency
+arima_residuals_ts <- xts(arima_residuals, order.by = index(bitcoin_neg_log_ts))
+
+# -----------------------------
+# 10. Fit GARCH(1,1) Models on ARIMA Residuals
+# -----------------------------
+
+# Fit GARCH(1,1) with Normal Distribution on ARIMA Residuals
+garch_norm <- tryCatch({
+  garchFit(~ garch(1,1), data = arima_residuals_ts, cond.dist = "norm", trace = FALSE)
+}, error = function(e){
+  cat("Error in fitting GARCH(1,1) with Normal Distribution:", e$message, "\n")
+  return(NULL)
+})
+
+# Fit GARCH(1,1) with Standardized t-Distribution on ARIMA Residuals
+garch_t <- tryCatch({
+  garchFit(~ garch(1,1), data = arima_residuals_ts, cond.dist = "std", trace = FALSE)
+}, error = function(e){
+  cat("Error in fitting GARCH(1,1) with t-Distribution:", e$message, "\n")
+  return(NULL)
+})
+
+# -----------------------------
+# 11. Summarize and Save GARCH Model Summaries
+# -----------------------------
+
+# Function to save model summary to a text file
+save_model_summary <- function(model, model_name, directory) {
+  if(!is.null(model)){
+    sink(file = file.path(directory, paste0(model_name, "_Summary.txt")))
+    cat(paste("Model Summary for", model_name, ":\n\n"))
+    print(summary(model))
+    sink()
+    cat(paste("Saved", model_name, "Summary to", paste0(model_name, "_Summary.txt"), "\n"))
+  } else {
+    cat(paste("Model", model_name, "is NULL. Skipping summary.\n"))
+  }
+}
+
+# Save summaries
+save_model_summary(garch_norm, "GARCH_Normal", result_dir)
+save_model_summary(garch_t, "GARCH_t", result_dir)
+
+# -----------------------------
+# 12. Plot Conditional Volatility
+# -----------------------------
+
+# Function to plot conditional volatility
+plot_conditional_volatility <- function(model, model_name, directory) {
+  if(!is.null(model)){
+    cond_vol <- volatility(model)
+    dates <- index(arima_residuals_ts)
+    vol_df <- data.frame(Date = dates, Conditional_Volatility = cond_vol)
+
+    vol_plot <- ggplot(vol_df, aes(x = Date, y = Conditional_Volatility)) +
+      geom_line(color = "blue") +
+      ggtitle(paste("Conditional Volatility -", model_name)) +
+      xlab("Date-Time") +
+      ylab("Conditional Volatility") +
+      theme_bw()
+
+    # Save the plot
+    ggsave(filename = file.path(directory, paste0("Conditional_Volatility_", model_name, ".png")),
+           plot = vol_plot, width = 16, height = 6, dpi = 300)
+    cat(paste("Saved Conditional Volatility plot for", model_name, "\n"))
+  } else {
+    cat(paste("Model", model_name, "is NULL. Skipping Conditional Volatility plot.\n"))
+  }
+}
+
+# Plot conditional volatilities
+plot_conditional_volatility(garch_norm, "GARCH_Normal", result_dir)
+plot_conditional_volatility(garch_t, "GARCH_t", result_dir)
+
+# -----------------------------
+# 13. Assess Residuals of GARCH Models
+# -----------------------------
+
+# Function to assess residuals
+assess_residuals <- function(model, model_name, directory) {
+  if(!is.null(model)){
+    # Extract standardized residuals
+    std_resid <- residuals(model, standardize = TRUE)
+
+    # Convert to data frame for plotting
+    resid_df <- data.frame(Date = index(arima_residuals_ts), Residuals = std_resid)
+
+    # Plot Residuals Over Time
+    resid_time_plot <- ggplot(resid_df, aes(x = Date, y = Residuals)) +
+      geom_line(color = "darkgreen") +
+      ggtitle(paste("Standardized Residuals Over Time -", model_name)) +
+      xlab("Date-Time") +
+      ylab("Standardized Residuals") +
+      theme_bw()
+
+    # Plot Histogram and Density
+    resid_hist_plot <- ggplot(resid_df, aes(x = Residuals)) +
+      geom_histogram(aes(y = ..density..), bins = 30, fill = "lightblue", color = "black") +
+      geom_density(color = "red") +
+      ggtitle(paste("Histogram and Density of Residuals -", model_name)) +
+      xlab("Standardized Residuals") +
+      theme_bw()
+
+    # Plot ACF of Residuals
+    resid_acf_plot <- ggAcf(std_resid, lag.max = 30) +
+      ggtitle(paste("ACF of Residuals -", model_name)) +
+      theme_bw()
+
+    # Combine all plots into one grid
+    combined_resid_plots <- gridExtra::grid.arrange(resid_time_plot, resid_hist_plot, resid_acf_plot, ncol = 2)
+
+    # Save the combined residual plots
+    ggsave(filename = file.path(directory, paste0("Residuals_Plots_", model_name, ".png")),
+           plot = combined_resid_plots, width = 16, height = 12, dpi = 300)
+    cat(paste("Saved Residuals plots for", model_name, "\n"))
+
+    # Perform Ljung-Box Test on Residuals
+    ljung_box_resid <- Box.test(std_resid, lag = 20, type = "Ljung-Box")
+
+    # Print and save the Ljung-Box test results
+    cat(paste("\nLjung-Box Test for Residuals of", model_name, ":\n"))
+    print(ljung_box_resid)
+
+    # Save the Ljung-Box test results to a text file
+    sink(file = file.path(directory, paste0("LjungBox_Test_Residuals_", model_name, ".txt")))
+    cat(paste("Ljung-Box Test for Residuals of", model_name, ":\n\n"))
+    print(ljung_box_resid)
+    sink()
+    cat(paste("Saved Ljung-Box Test Results for Residuals of", model_name, "to 'LjungBox_Test_Residuals_", model_name, ".txt'.\n"))
+  } else {
+    cat(paste("Model", model_name, "is NULL. Skipping residual assessment.\n"))
+  }
+}
+
+# Assess residuals for both GARCH models
+assess_residuals(garch_norm, "GARCH_Normal", result_dir)
+assess_residuals(garch_t, "GARCH_t", result_dir)
+
+```
+
+
+## 3a
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "dplyr", "gridExtra")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that required columns exist
+required_columns <- c("Bitcoin", "Ethereum")
+missing_columns <- setdiff(required_columns, names(data))
+if(length(missing_columns) > 0){
+  stop(paste("The following required columns are missing in 'Crypto_data.csv':",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# -----------------------------
+# 3. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 4. Compute Negative Log Returns for Bitcoin and Ethereum
+# -----------------------------
+
+# Extract Bitcoin and Ethereum prices
+bitcoin_prices <- data$Bitcoin
+ethereum_prices <- data$Ethereum
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+ethereum_neg_log_returns <- negative_log_returns(ethereum_prices)
+
+# -----------------------------
+# 5. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for negative log returns
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+ethereum_neg_log_ts <- xts(ethereum_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 6. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save plots and results
+result_dir <- "plots_part3a"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 7. Perform Correlation Test
+# -----------------------------
+
+# Ensure both series have the same length
+min_length <- min(length(bitcoin_neg_log_ts), length(ethereum_neg_log_ts))
+bitcoin_neg_log_ts <- bitcoin_neg_log_ts[1:min_length]
+ethereum_neg_log_ts <- ethereum_neg_log_ts[1:min_length]
+
+# Convert xts objects to numeric vectors
+btc_returns <- as.numeric(bitcoin_neg_log_ts)
+eth_returns <- as.numeric(ethereum_neg_log_ts)
+
+# Perform Pearson correlation test
+cor_test_result <- cor.test(btc_returns, eth_returns, method = "pearson")
+
+# Print the results to console
+print(cor_test_result)
+
+# Save the correlation test results to a text file
+sink(file = file.path(result_dir, "Correlation_Test_Results.txt"))
+cat("Correlation Test between Bitcoin and Ethereum Negative Log Returns:\n\n")
+print(cor_test_result)
+sink()
+cat("Saved Correlation Test Results to 'Correlation_Test_Results.txt'.\n")
+
+# -----------------------------
+# 8. Visualize the Relationship
+# -----------------------------
+
+# Create a data frame for plotting
+plot_df <- data.frame(
+  Bitcoin_NegLogReturns = btc_returns,
+  Ethereum_NegLogReturns = eth_returns
+)
+
+# Generate scatter plot with white background
+scatter_plot <- ggplot(plot_df, aes(x = Bitcoin_NegLogReturns, y = Ethereum_NegLogReturns)) +
+  geom_point(alpha = 0.3, color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle("Scatter Plot of Bitcoin vs Ethereum Negative Log Returns") +
+  xlab("Bitcoin Negative Log Returns") +
+  ylab("Ethereum Negative Log Returns") +
+  theme_bw()  # This ensures a white background
+
+# Save the scatter plot
+ggsave(filename = file.path(result_dir, "Scatter_Plot_BTC_ETH_NegLogReturns.png"),
+       plot = scatter_plot, width = 8, height = 6, dpi = 300)
+cat("Saved Scatter Plot to 'Scatter_Plot_BTC_ETH_NegLogReturns.png'.\n")
+
+```
+
+## 3b
+
+```{r}
+
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "dplyr", "gridExtra")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Suppress the 'lag()' Warning from xts
+# -----------------------------
+
+# Suppress the specific warning related to 'lag()' from 'xts'
+options(xts.warn_dplyr_breaks_lag = FALSE)
+
+# -----------------------------
+# 3. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that required columns exist
+required_columns <- c("Bitcoin", "Ethereum")
+missing_columns <- setdiff(required_columns, names(data))
+if(length(missing_columns) > 0){
+  stop(paste("The following required columns are missing in 'Crypto_data.csv':",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# -----------------------------
+# 4. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 5. Compute Negative Log Returns for Bitcoin and Ethereum
+# -----------------------------
+
+# Extract Bitcoin and Ethereum prices
+bitcoin_prices <- data$Bitcoin
+ethereum_prices <- data$Ethereum
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+ethereum_neg_log_returns <- negative_log_returns(ethereum_prices)
+
+# -----------------------------
+# 6. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for negative log returns
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+ethereum_neg_log_ts <- xts(ethereum_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 7. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save plots and results
+result_dir <- "plots_part3b"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 8. Perform Cross-Correlation Function (CCF) Analysis
+# -----------------------------
+
+# Ensure both series have the same length
+min_length <- min(length(bitcoin_neg_log_ts), length(ethereum_neg_log_ts))
+bitcoin_neg_log_ts <- bitcoin_neg_log_ts[1:min_length]
+ethereum_neg_log_ts <- ethereum_neg_log_ts[1:min_length]
+
+# Convert xts objects to numeric vectors
+btc_returns <- as.numeric(bitcoin_neg_log_ts)
+eth_returns <- as.numeric(ethereum_neg_log_ts)
+
+# Compute and plot CCF
+ccf_result <- ccf(btc_returns, eth_returns, lag.max = 50, plot = FALSE)
+
+# Create a data frame from CCF results for plotting with ggplot2
+ccf_df <- data.frame(
+  Lag = ccf_result$lag,
+  CCF = ccf_result$acf
+)
+
+# Generate CCF plot using ggplot2
+ccf_plot <- ggplot(ccf_df, aes(x = Lag, y = CCF)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(2/sqrt(length(btc_returns)), -2/sqrt(length(btc_returns))),
+             color = "red", linetype = "dashed") +
+  geom_hline(yintercept = 0, color = "black") +
+  ggtitle("Cross-Correlation Function (CCF) between Bitcoin and Ethereum Negative Log Returns") +
+  xlab("Lag (minutes)") +
+  ylab("CCF") +
+  theme_bw()
+
+# Save the CCF plot
+ggsave(filename = file.path(result_dir, "CCF_BTC_ETH_NegLogReturns.png"),
+       plot = ccf_plot, width = 10, height = 6, dpi = 300)
+cat("Saved CCF Plot to 'CCF_BTC_ETH_NegLogReturns.png'.\n")
+
+# -----------------------------
+# 9. Save CCF Results to a CSV File
+# -----------------------------
+
+# Save the CCF data frame to a CSV file
+write.csv(ccf_df, file = file.path(result_dir, "CCF_BTC_ETH_NegLogReturns.csv"), row.names = FALSE)
+cat("Saved CCF Data to 'CCF_BTC_ETH_NegLogReturns.csv'.\n")
+
+```
+
+
+## 3c
+
+```{r}
+# Function to install and load packages
+install_and_load <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    install.packages(package_name, dependencies = TRUE, repos = "http://cran.us.r-project.org")
+    if(!require(package_name, character.only = TRUE)){
+      stop(paste("Package", package_name, "could not be loaded"))
+    }
+  }
+}
+
+# List of required packages
+packages <- c("ggplot2", "xts", "dplyr", "gridExtra", "lmtest", "vars")
+
+# Install and load each package, suppressing output
+invisible(sapply(packages, install_and_load))
+
+# -----------------------------
+# 2. Suppress the 'lag()' Warning from xts
+# -----------------------------
+
+# Suppress the specific warning related to 'lag()' from 'xts'
+options(xts.warn_dplyr_breaks_lag = FALSE)
+
+# -----------------------------
+# 3. Read the Crypto_data.csv File
+# -----------------------------
+
+# Read the CSV file into a data frame
+data <- read.csv("Crypto_data.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Verify that required columns exist
+required_columns <- c("Bitcoin", "Ethereum")
+missing_columns <- setdiff(required_columns, names(data))
+if(length(missing_columns) > 0){
+  stop(paste("The following required columns are missing in 'Crypto_data.csv':",
+             paste(missing_columns, collapse = ", ")))
+}
+
+# -----------------------------
+# 4. Define Negative Log Returns Function
+# -----------------------------
+
+negative_log_returns <- function(prices) {
+  # Ensure the input is numeric
+  prices <- as.numeric(prices)
+
+  # Check for non-positive prices to avoid log issues
+  if(any(prices <= 0, na.rm = TRUE)) {
+    stop("Prices must be positive to compute logarithms.")
+  }
+
+  # Compute log returns: log(P_t) - log(P_{t-1})
+  log_returns <- diff(log(prices))
+
+  # Compute negative log returns
+  neg_log_returns <- -log_returns
+
+  return(neg_log_returns)
+}
+
+# -----------------------------
+# 5. Compute Negative Log Returns for Bitcoin and Ethereum
+# -----------------------------
+
+# Extract Bitcoin and Ethereum prices
+bitcoin_prices <- data$Bitcoin
+ethereum_prices <- data$Ethereum
+
+# Compute negative log returns
+bitcoin_neg_log_returns <- negative_log_returns(bitcoin_prices)
+ethereum_neg_log_returns <- negative_log_returns(ethereum_prices)
+
+# -----------------------------
+# 6. Create Time Series Objects
+# -----------------------------
+
+# Assuming data is recorded every minute
+# Create a sequence of POSIXct timestamps
+start_time <- as.POSIXct("2024-12-01 00:00:00")
+time_sequence <- seq(from = start_time, by = "min", length.out = length(bitcoin_prices))
+
+# Create time series objects for negative log returns
+bitcoin_neg_log_ts <- xts(bitcoin_neg_log_returns, order.by = time_sequence[-1])
+ethereum_neg_log_ts <- xts(ethereum_neg_log_returns, order.by = time_sequence[-1])
+
+# -----------------------------
+# 7. Create a Directory to Save Results
+# -----------------------------
+
+# Define a directory to save plots and results
+result_dir <- "plots_part3c"
+if(!dir.exists(result_dir)){
+  dir.create(result_dir)
+  cat("Created directory for results:", result_dir, "\n")
+} else {
+  cat("Saving results to directory:", result_dir, "\n")
+}
+
+# -----------------------------
+# 8. Determine Optimal Lag Order
+# -----------------------------
+
+# Combine the two series into a data frame for VAR analysis
+combined_returns <- na.omit(merge(bitcoin_neg_log_ts, ethereum_neg_log_ts))
+colnames(combined_returns) <- c("Bitcoin", "Ethereum")
+
+# Convert to time series format
+combined_ts <- ts(combined_returns, frequency = 1)
+
+# Select optimal lag order based on AIC
+lag_selection <- VARselect(combined_ts, lag.max = 10, type = "const")
+
+# Extract the suggested lag order
+optimal_lag <- lag_selection$selection["AIC(n)"]
+cat(paste("Optimal lag order selected based on AIC:", optimal_lag, "\n"))
+
+# -----------------------------
+# 9. Perform Granger Causality Tests
+# -----------------------------
+
+# Test 1: Does Bitcoin Granger-cause Ethereum?
+granger_test_btc_causes_eth <- tryCatch({
+  grangertest(Ethereum ~ Bitcoin, order = optimal_lag, data = combined_returns)
+}, error = function(e){
+  cat("Error in Granger Test (Bitcoin → Ethereum):", e$message, "\n")
+  return(NULL)
+})
+
+# Test 2: Does Ethereum Granger-cause Bitcoin?
+granger_test_eth_causes_btc <- tryCatch({
+  grangertest(Bitcoin ~ Ethereum, order = optimal_lag, data = combined_returns)
+}, error = function(e){
+  cat("Error in Granger Test (Ethereum → Bitcoin):", e$message, "\n")
+  return(NULL)
+})
+
+# -----------------------------
+# 10. Save Granger Test Results
+# -----------------------------
+
+# Function to save test results to a text file
+save_granger_test_result <- function(test_result, test_name, directory) {
+  if(!is.null(test_result)){
+    sink(file = file.path(directory, paste0("Granger_Test_Result_", test_name, ".txt")))
+    cat(paste("Granger Causality Test:", test_name, "\n\n"))
+    print(test_result)
+    sink()
+    cat(paste("Saved Granger Test Result to 'Granger_Test_Result_", test_name, ".txt'.\n"))
+  } else {
+    cat(paste("Granger Test", test_name, "is NULL. Skipping saving.\n"))
+  }
+}
+
+# Save both test results
+save_granger_test_result(granger_test_btc_causes_eth, "Bitcoin_causes_Ethereum", result_dir)
+save_granger_test_result(granger_test_eth_causes_btc, "Ethereum_causes_Bitcoin", result_dir)
+
+# -----------------------------
+# 11. Visualize Granger Causality Results (Impulse Response Functions)
+# -----------------------------
+
+# Fit a VAR model with the optimal lag
+var_model <- tryCatch({
+  VAR(combined_ts, p = optimal_lag, type = "const")
+}, error = function(e){
+  cat("Error in fitting VAR model:", e$message, "\n")
+  return(NULL)
+})
+
+if(!is.null(var_model)){
+  # Plot Impulse Response Functions (IRF) for Bitcoin -> Ethereum
+  irf_btc_eth <- irf(var_model, impulse = "Bitcoin", response = "Ethereum",
+                    n.ahead = 20, boot = TRUE, ci = 0.95)
+
+  # Save IRF plot for Bitcoin -> Ethereum
+  png(filename = file.path(result_dir, "IRF_BTC_to_ETH.png"), width = 800, height = 600)
+  plot(irf_btc_eth, main = "Impulse Response: Bitcoin to Ethereum")
+  dev.off()
+  cat("Saved Impulse Response Function Plot to 'IRF_BTC_to_ETH.png'.\n")
+
+  # Plot Impulse Response Functions (IRF) for Ethereum -> Bitcoin
+  irf_eth_btc <- irf(var_model, impulse = "Ethereum", response = "Bitcoin",
+                    n.ahead = 20, boot = TRUE, ci = 0.95)
+
+  # Save IRF plot for Ethereum -> Bitcoin
+  png(filename = file.path(result_dir, "IRF_ETH_to_BTC.png"), width = 800, height = 600)
+  plot(irf_eth_btc, main = "Impulse Response: Ethereum to Bitcoin")
+  dev.off()
+  cat("Saved Impulse Response Function Plot to 'IRF_ETH_to_BTC.png'.\n")
+}
+
+```
+
+
+
+
+
+

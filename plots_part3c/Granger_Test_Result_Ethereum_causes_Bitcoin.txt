@@ -1,0 +1,9 @@
+Granger Causality Test: Ethereum_causes_Bitcoin 
+
+Granger causality test
+
+Model 1: Bitcoin ~ Lags(Bitcoin, 1:5) + Lags(Ethereum, 1:5)
+Model 2: Bitcoin ~ Lags(Bitcoin, 1:5)
+  Res.Df Df      F Pr(>F)
+1   1423                 
+2   1428 -5 0.5828 0.7132
